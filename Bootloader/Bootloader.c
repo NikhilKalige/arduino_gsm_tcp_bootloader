@@ -1,15 +1,15 @@
 /*
- * Bootloader.c
- *
- * Created: 13/12/2012 5:28:26 PM
- *  Author: Nikhil
- */ 
+* Bootloader.c
+*
+* Created: 13/12/2012 5:28:26 PM
+*  Author: Nikhil
+*/
 
 #include <inttypes.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 
-#define SERIAL_DEBUG 
+#define SERIAL_DEBUG
 //#define TESTING
 
 // <avr/boot.h> uses sts instructions, but this version uses out instructions
@@ -18,10 +18,10 @@
 #define RAMSTART (0x100)
 
 /*******************************************************
-					EEROM Memory Organization
+EEROM Memory Organization
 *******************************************************/
 
-// Model No of Device 
+// Model No of Device
 // Cant be 0x10, starts from 0x01 to 0xff
 #define MODEL_NO 0x01
 #define MODEL_NO_ADDRESS 1000
@@ -50,10 +50,11 @@
 #elif BOOT_SIZE == 4096
 #define MAX_ADDR	0x7000
 #endif
- 
+
 #define NRWWSTART		0x7000
 
 #define MAX_ERROR_COUNT		10
+#define MAX_ERROR_WRITE		4
 #define PWRKEY _BV(1)
 #define DTR _BV(0)
 
@@ -140,7 +141,7 @@ int main()
 	UCSR0B = _BV(RXEN0) | _BV(TXEN0);
 	UCSR0C = _BV(UCSZ00) | _BV(UCSZ01);
 	UBRR0L = (uint8_t)( (F_CPU + BAUD_RATE * 4L) / (BAUD_RATE * 8L) - 1 );
-///*	
+	///*
 	// Delay for 16 sec to check whether the Module has Turned on
 	// Each iteration is worth 4 sec
 	uint8_t i;
@@ -197,7 +198,7 @@ int main()
 	read(rec_buf,_500ms,1);
 	print("AT+CIPMUX=0\r");
 	read(rec_buf,_500ms,1);
-	// Check for APN  presence in eeprom by looking for " 
+	// Check for APN  presence in eeprom by looking for "
 	/*
 	if(eeprom_read(GPRS_SETTINGS) == '"')
 	{
@@ -224,9 +225,9 @@ int main()
 	read(rec_buf,_4s,1);
 
 	// Initiate connection with the server and read the data
-//*/
-		//print("ATE0\r"); // Skip check for OK to save flash. Give delay of 100ms for return data
-		//delay(_100ms);
+	//*/
+	//print("ATE0\r"); // Skip check for OK to save flash. Give delay of 100ms for return data
+	//delay(_100ms);
 	
 	SEND send_status = _START;
 	CMD cmd_status = _VERSION;
@@ -263,14 +264,14 @@ int main()
 #endif
 				while(1)
 				{
-					Blink_LED(_500ms);										
+					Blink_LED(_500ms);
 				}
 			}
 		}
 		if(send_status == _START)
 		{
 			for(i =4;i > 0; i--)
-			{				
+			{
 				print("AT+CIPSTART=\"TCP\",\"lonewolf.freevar.com\",\"80\"\r\n"); // CONNECT
 				read(rec_buf,_4s,1);
 				if(strstr(rec_buf,"CONNECT"))
@@ -283,7 +284,7 @@ int main()
 					--Error_count;
 				}
 			}
-			// What to do if i reaches 0			
+			// What to do if i reaches 0
 		}
 		else if(send_status == _SEND)
 		{
@@ -397,8 +398,8 @@ int main()
 							// Start writing data into Flash
 							write_addr = (page_no - 1) << 9;
 #ifdef SERIAL_DEBUG
-							 println("Writing Data for block ");
-							 printnum(page_no);
+							println("Writing Data for block ");
+							printnum(page_no);
 #endif
 							// write_addr = 0 means we have not yet started writing to Flash
 							if(write_addr == 0)
@@ -407,7 +408,7 @@ int main()
 								if(!validImage(ptr))
 								{
 #ifdef SERIAL_DEBUG
-									println("Invalid Image");			
+									println("Invalid Image");
 #endif
 									// the code is corrupted so dont erase the flag also exit, below is a hack to exit
 									write_addr = MAX_ADDR + 5;
@@ -415,7 +416,7 @@ int main()
 								else
 								{
 #ifdef SERIAL_DEBUG
-									println("Valid Image");							
+									println("Valid Image");
 #endif
 									//Erase the flag in eeprom
 									eeprom_write(FLASH_WRITE_FLAG,0xff);
@@ -433,7 +434,7 @@ int main()
 								{
 									packet_length++;
 								}
-#ifdef SERIAL_DEBUG								
+#ifdef SERIAL_DEBUG
 								println("Packet length adjusted to ");
 								printnum(packet_length);
 								//println("Offset= ");
@@ -445,7 +446,7 @@ int main()
 								{
 									*(ptr + offset) = 0x00;
 									offset++;
-#ifdef SERIAL_DEBUG									
+#ifdef SERIAL_DEBUG
 									//println("Offset= ");
 									//printnum(offset);
 #endif
@@ -454,18 +455,18 @@ int main()
 								for(offset = 0 ; offset < packet_length;)
 								{
 									uint16_t write_value = (ptr[offset]) | ((ptr[offset+1]) << 8);
-#ifndef TESTING									
+#ifndef TESTING
 									//__boot_page_fill_short((write_addr + offset), write_value);
 									boot_page_fill((write_addr + offset), write_value);
 #endif
 #ifdef SERIAL_DEBUG
-										//if((offset == 0) || ((offset == (packet_length - 2)))) 
-										//{
-											println("Writing ");
-											printnum(write_value);
-											print(" at offset ");
-											printnum(write_addr + offset);
-										//}										
+									//if((offset == 0) || ((offset == (packet_length - 2))))
+									//{
+										println("Writing ");
+										printnum(write_value);
+										print(" at offset ");
+										printnum(write_addr + offset);
+									//}
 #endif
 									offset += 2;
 									if(offset % SPM_PAGESIZE == 0)
@@ -474,32 +475,55 @@ int main()
 										println("Flashing Data");
 #endif
 #ifndef TESTING
-										//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
-										boot_page_erase(write_addr + offset - SPM_PAGESIZE);
-										boot_spm_busy_wait();
-										//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
-										boot_page_write(write_addr + offset - SPM_PAGESIZE);
-										boot_spm_busy_wait();
-										
+										uint8_t write_error = MAX_ERROR_WRITE;
+										do
+										{
+											//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
+											boot_page_erase(write_addr + offset - SPM_PAGESIZE);
+											boot_spm_busy_wait();
+											//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
+											boot_page_write(write_addr + offset - SPM_PAGESIZE);
+											boot_spm_busy_wait();
+											
 #if defined(RWWSRE)
-										// Reenable read access to flash
-										boot_rww_enable();
+											// Reenable read access to flash
+											boot_rww_enable();
 #endif
 #endif
+											// Verifying whether the data has been written or not
+											uint16_t temp_add = write_addr + offset - SPM_PAGESIZE;
+											uint8_t temp_counter = SPM_PAGESIZE;
+											uint16_t data_pointer = offset - SPM_PAGESIZE;
 #ifdef SERIAL_DEBUG
-									// Verifying whether the data has been written or not
-									println("Verifying");
-									println("");
-									uint16_t temp_add = write_addr + offset - SPM_PAGESIZE;
-									uint8_t temp_counter = SPM_PAGESIZE;
-									do 
-									{
-										printnum(temp_add);
-										print(" : ");
-										printnum(pgm_read_byte_near(temp_add++));
-										println("");
-									} while (--temp_counter);
+											println("Verifying");
+											println("");
 #endif
+											do
+											{
+												if(pgm_read_byte_near(temp_add) != *(ptr + data_pointer))
+												{
+#ifdef SERIAL_DEBUG
+													println("Error while writing");
+#endif
+													offset-= SPM_PAGESIZE;
+													write_error--;
+													break;
+												}
+#ifdef SERIAL_DEBUG
+												printnum(temp_add);
+												print(" : ");
+												printnum(pgm_read_byte_near(temp_add));
+												println("");
+#endif
+												temp_add++;
+												data_pointer++;
+											}while (--temp_counter);
+											if(!temp_counter)
+											{
+												// counter is zero, so no error
+												write_error = 0;
+											}
+										}while(write_error);
 									}
 								}
 							}
@@ -526,7 +550,7 @@ int main()
 								Error_count = 0;
 							}
 							page_no++;
-						}							
+						}
 					}
 				}
 			}
@@ -536,7 +560,7 @@ int main()
 #ifdef SERIAL_DEBUG
 				println("Error has Occured :");
 				printnum(Error_count);
-#endif			
+#endif
 			}
 		}
 	}
@@ -613,12 +637,12 @@ static uint8_t eeprom_read(uint16_t address)
 void appStart()
 {
 	__asm__ __volatile__(
-	 // Jump to RST vector
-	 "clr r30\n"
-	 "clr r31\n"
-	 "ijmp\n"
-	 );
-}	 
+	// Jump to RST vector
+	"clr r30\n"
+	"clr r31\n"
+	"ijmp\n"
+	);
+}
 
 void Blink_LED(uint16_t time)
 {
@@ -633,7 +657,7 @@ static uint8_t validImage(uint8_t* base)
 {
 	/* Check that a jump table is present in the first flash sector */
 	uint8_t i;
-	for(i = 0; i < 0x34; i += 4) 
+	for(i = 0; i < 0x34; i += 4)
 	{
 		// For each vector, check it is of the form:
 		// 0x0C 0x94 0xWX 0xYZ  ; JMP 0xWXYZ
@@ -641,7 +665,7 @@ static uint8_t validImage(uint8_t* base)
 		{
 			return(0);
 		}
-		if(base[i + 1] != 0x94) 
+		if(base[i + 1] != 0x94)
 		{
 			return(0);
 		}
