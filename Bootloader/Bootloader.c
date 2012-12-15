@@ -9,7 +9,7 @@
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 
-#define SERIAL_DEBUG
+//#define SERIAL_DEBUG
 //#define TESTING
 
 // <avr/boot.h> uses sts instructions, but this version uses out instructions
@@ -61,7 +61,6 @@ EEROM Memory Organization
 #define F_CPU 16000000L
 #define BAUD_RATE 115200
 
-//#define UNIT_TIME (F_CPU/1024)
 #define UNIT_TIME (F_CPU/1024)
 
 // Delay time counts
@@ -110,6 +109,8 @@ static uint8_t eeprom_read(uint16_t address);
 static void eeprom_write(uint16_t address, uint8_t value);
 static uint8_t validImage(uint8_t* base);
 void Blink_LED(uint16_t time);
+uint16_t atoi_local(char * str, uint8_t len);
+void itoa_local(char *str , uint16_t value);
 void appStart() __attribute__ ((naked));
 
 static char rec_buf[1024];
@@ -306,10 +307,13 @@ int main()
 				}
 				else if(cmd_status == _PAGE)
 				{
+					uint8_t pageno_str[4];
 					write(ver_high);
 					write(ver_low);
 					write('/');
-					write(page_no);
+					itoa(page_no,pageno_str,10);
+					//itoa_local(page_no,pageno_str);
+					print(pageno_str);
 				}
 				print(" HTTP/1.1\r\nHost: lonewolf.freevar.com\r\n\r\n");
 				write(0x1A);
@@ -328,15 +332,16 @@ int main()
 			if((strstr(rec_buf,"200 OK")))
 			{
 				unsigned char *ptr;
-				// Data is of format ..    @lh:lldata
+				// Data is of format ..    @l3l2l1l0@data
 				ptr = (strchr(rec_buf,'@'));
 				if(ptr)
 				{
 					uint16_t packet_length;
-					packet_length = *(ptr + 1);
-					packet_length = packet_length << 8;
-					packet_length |= *(ptr + 2);
-					ptr += 3;
+					// Terminate the recieved string at second @ to convert it to a integer
+					//*(ptr + 5) = 0;
+					//packet_length = atoi(ptr + 1);
+					packet_length = atoi_local(ptr + 1,4);
+					ptr += 6;
 					if(cmd_status == _VERSION)
 					{
 						//get the version no's
@@ -373,18 +378,17 @@ int main()
 					else if(cmd_status == _LENGTH)
 					{
 						//  get the no of pages
-						if(packet_length == 1)
-						{
-							no_pages = *(ptr);
-							page_no = 1;
-							cmd_status = _PAGE;
+						//*(ptr + packet_length) = 0;
+						//no_pages = atoi(ptr);
+						no_pages = atoi_local(ptr,(uint8_t)packet_length);
+						page_no = 1;
+						cmd_status = _PAGE;
 #ifdef SERIAL_DEBUG
-							println("packet length = ");
-							printnum(packet_length);
-							println("no of pages = ");
-							printnum(no_pages);
+						println("packet length = ");
+						printnum(packet_length);
+						println("no of pages = ");
+						printnum(no_pages);
 #endif
-						}
 					}
 					else if(cmd_status == _PAGE)
 					{
@@ -673,6 +677,35 @@ static uint8_t validImage(uint8_t* base)
 	return(1);
 }
 
+uint16_t atoi_local(char * str, uint8_t len)
+{
+	uint8_t i = 0;
+	uint16_t value = 0;
+	while(i < (len))
+	{
+		value = value * 10 + (*(str + i)-0x30);
+		i++;
+	}
+	return value;
+}
+
+void itoa_local(char *str , uint16_t value)
+{
+	uint8_t i = 0,j,c;
+	do
+	{
+		str[i++] = value%10 + 0x30;
+		value = value / 10;
+	}while(value);
+	str[i]=0;
+	j = i - 1;
+	for (i = 0; i<j; i++, j--) 
+	{
+		c = str[i];
+		str[i] = str[j];
+		str[j] = c;
+	}
+}
 
 #ifdef SERIAL_DEBUG
 void println(char* msg)
