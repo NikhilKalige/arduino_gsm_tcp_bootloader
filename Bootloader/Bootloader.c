@@ -9,7 +9,7 @@
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 
-//#define SERIAL_DEBUG
+#define SERIAL_DEBUG
 //#define TESTING
 
 // <avr/boot.h> uses sts instructions, but this version uses out instructions
@@ -82,6 +82,14 @@ typedef enum {
 	_LENGTH,
 	_PAGE,
 }CMD;
+
+typedef enum
+{
+	_ADDR_VALIDATE = 1,
+	_LOAD,
+	_WRITE,
+	_VERIFY
+}WRITE;
 
 #define DEBUG_LED _BV(5) //PB5
 
@@ -238,6 +246,7 @@ int main()
 	uint16_t write_addr;
 	while(1)
 	{
+		uint8_t write_error;
 		if(!Error_count)
 		{
 			//Start Application based on Flash Write Flag
@@ -246,26 +255,23 @@ int main()
 			if(flag == FLASH_WR_COMPLETE_VALUE)
 			{
 				//Start Application
+				println("start");
 #ifndef  TESTING
+				println("start");
 				appStart();
-#endif
-#ifdef SERIAL_DEBUG
-				println("Starting ");
 #endif
 				while(1)
 				{
-					Blink_LED(_2s);
+					Blink_LED(_500ms);
 				}
 			}
 			else
 			{
 				//LED Flash
-#ifdef SERIAL_DEBUG
-				println("Error App not started");
-#endif
 				while(1)
 				{
-					Blink_LED(_500ms);
+					println("error");
+					Blink_LED(_2s);
 				}
 			}
 		}
@@ -354,26 +360,10 @@ int main()
 							uint8_t curr_ver_low = eeprom_read(SOFTWARE_VER_LOW);
 							if((curr_ver_high >= ver_high) && (curr_ver_low >= ver_low))
 							{
-#ifdef SERIAL_DEBUG
-								println("No updates available");
-#endif
-								Error_count = 0;
+								//Error_count = 0;
 							}
-#ifdef SERIAL_DEBUG
-							println("packet length = ");
-							printnum(packet_length);
-							println("curr version high = ");
-							printnum(curr_ver_high);
-							println("curr version low = ");
-							printnum(curr_ver_low);
-							println("version high = ");
-							printnum(ver_high);
-							println("version low = ");
-							printnum(ver_low);
-#endif
 							cmd_status = _LENGTH;
 						}
-						
 					}
 					else if(cmd_status == _LENGTH)
 					{
@@ -383,189 +373,154 @@ int main()
 						no_pages = atoi_local(ptr,(uint8_t)packet_length);
 						page_no = 1;
 						cmd_status = _PAGE;
-#ifdef SERIAL_DEBUG
-						println("packet length = ");
-						printnum(packet_length);
-						println("no of pages = ");
-						printnum(no_pages);
-#endif
 					}
 					else if(cmd_status == _PAGE)
 					{
-						// get the binary data and start writing to memory
-						if(no_pages--)
+						uint8_t exit_page = 1;
+						uint16_t offset;
+						WRITE write_status = _ADDR_VALIDATE;
+						while(exit_page)
 						{
-#ifdef SERIAL_DEBUG
-							println("current page = ");
-							printnum(page_no);
-#endif
-							// Start writing data into Flash
-							write_addr = (page_no - 1) << 9;
-#ifdef SERIAL_DEBUG
-							println("Writing Data for block ");
-							printnum(page_no);
-#endif
-							// write_addr = 0 means we have not yet started writing to Flash
-							if(write_addr == 0)
+							if(write_status == _ADDR_VALIDATE)
 							{
-								// Check for code validity
-								if(!validImage(ptr))
-								{
-#ifdef SERIAL_DEBUG
-									println("Invalid Image");
-#endif
-									// the code is corrupted so dont erase the flag also exit, below is a hack to exit
-									write_addr = MAX_ADDR + 5;
-								}
-								else
-								{
-#ifdef SERIAL_DEBUG
-									println("Valid Image");
-#endif
-									//Erase the flag in eeprom
-									eeprom_write(FLASH_WRITE_FLAG,0xff);
-								}
-							}
-							if(!((write_addr + packet_length) > MAX_ADDR))
-							{
-#ifdef SERIAL_DEBUG
+								println("add_validate");
 								println("Writing data from address ");
 								printnum(write_addr);
-#endif
-								uint16_t offset = 0; // Block offset
+								write_addr = (page_no - 1) << 9;
+								if(write_addr == 0)
+								{
+									println("validate image");
+									if(!validImage(ptr))
+									{
+										println("invalid");
+										exit_page = 0;
+										Error_count = 0;
+									}
+									else
+									{
+										println("flag erased");
+										//Erase the flag in eeprom
+										eeprom_write(FLASH_WRITE_FLAG,0xff);
+									}
+								}
+								if((write_addr + packet_length) > MAX_ADDR)
+								{
+									println("add exceeded");
+									exit_page = 0;
+									Error_count = 0;
+								}
 								offset = packet_length;
 								while(packet_length % SPM_PAGESIZE)
 								{
 									packet_length++;
 								}
-#ifdef SERIAL_DEBUG
-								println("Packet length adjusted to ");
-								printnum(packet_length);
-								//println("Offset= ");
-								//printnum(offset);
-								//println("Entering Loop");
-#endif
 								// As the packet_size is extended to block limit, extra increase in packet_length adds garbage at the end, so fill it with 0's
 								while(offset < packet_length)
 								{
-									*(ptr + offset) = 0x00;
+									*(ptr + offset) = 0;
 									offset++;
-#ifdef SERIAL_DEBUG
-									//println("Offset= ");
-									//printnum(offset);
-#endif
 								}
-								// Load data into buffer
-								for(offset = 0 ; offset < packet_length;)
+								offset = 0;
+								write_status = _LOAD;
+							}
+							
+							else if(write_status == _LOAD)
+							{
+								println("Load");
+								while(offset < packet_length)
 								{
 									uint16_t write_value = (ptr[offset]) | ((ptr[offset+1]) << 8);
-#ifndef TESTING
-									//__boot_page_fill_short((write_addr + offset), write_value);
+#ifndef  TESTING
 									boot_page_fill((write_addr + offset), write_value);
 #endif
-#ifdef SERIAL_DEBUG
-									//if((offset == 0) || ((offset == (packet_length - 2))))
-									//{
-										println("Writing ");
-										printnum(write_value);
-										print(" at offset ");
-										printnum(write_addr + offset);
-									//}
-#endif
+									println("Writing ");
+									printnum(write_value);
+									print(" at offset ");
+									printnum(write_addr + offset);
 									offset += 2;
 									if(offset % SPM_PAGESIZE == 0)
 									{
-#ifdef SERIAL_DEBUG
-										println("Flashing Data");
-#endif
-#ifndef TESTING
-										uint8_t write_error = MAX_ERROR_WRITE;
-										do
-										{
-											//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
-											boot_page_erase(write_addr + offset - SPM_PAGESIZE);
-											boot_spm_busy_wait();
-											//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
-											boot_page_write(write_addr + offset - SPM_PAGESIZE);
-											boot_spm_busy_wait();
-											
-#if defined(RWWSRE)
-											// Reenable read access to flash
-											boot_rww_enable();
-#endif
-#endif
-											// Verifying whether the data has been written or not
-											uint16_t temp_add = write_addr + offset - SPM_PAGESIZE;
-											uint8_t temp_counter = SPM_PAGESIZE;
-											uint16_t data_pointer = offset - SPM_PAGESIZE;
-#ifdef SERIAL_DEBUG
-											println("Verifying");
-											println("");
-#endif
-											do
-											{
-												if(pgm_read_byte_near(temp_add) != *(ptr + data_pointer))
-												{
-#ifdef SERIAL_DEBUG
-													println("Error while writing");
-#endif
-													offset-= SPM_PAGESIZE;
-													write_error--;
-													break;
-												}
-#ifdef SERIAL_DEBUG
-												printnum(temp_add);
-												print(" : ");
-												printnum(pgm_read_byte_near(temp_add));
-												println("");
-#endif
-												temp_add++;
-												data_pointer++;
-											}while (--temp_counter);
-											if(!temp_counter)
-											{
-												// counter is zero, so no error
-												write_error = 0;
-											}
-										}while(write_error);
+										offset = offset - 1;
+										write_status = _WRITE;
+										break;
 									}
 								}
+								if((!(offset < packet_length)))
+								{
+									page_no++;
+									if(page_no > no_pages)
+									{
+										println("Complete update eeprom");
+										// Complete Binary has been written.. Update EEPROM
+										//Update Flash Write flag and Update the software version
+										eeprom_write(FLASH_WRITE_FLAG,FLASH_WR_COMPLETE_VALUE);
+										eeprom_write(SOFTWARE_VER_HIGH,ver_high);
+										eeprom_write(SOFTWARE_VER_LOW,ver_low);
+										// Start the Application
+										Error_count = 0;
+									}
+									exit_page = 0;
+								}
+								offset = offset + 1;
+								write_error = MAX_ERROR_WRITE;
 							}
-							else
+							
+							else if(write_status == _WRITE)
 							{
-#ifdef SERIAL_DEBUG
-								println("Flash Full");
+								println("writing");
+								printnum(write_addr + offset - SPM_PAGESIZE);
+#ifndef  TESTING
+								//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
+								boot_page_erase(write_addr + offset - SPM_PAGESIZE);
+								boot_spm_busy_wait();
+								//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
+								boot_page_write(write_addr + offset - SPM_PAGESIZE);
+								boot_spm_busy_wait();
+								
+								#if defined(RWWSRE)
+								// Reenable read access to flash
+								boot_rww_enable();
+								#endif
 #endif
-								//Write addr is greater that Flash Size, Donot transfer control
-								no_pages = 0xff; //Just some garbage to prevent transfer to next if statement
-								Error_count = 0;
+								write_status = _VERIFY;
 							}
-							if(!no_pages)
+							
+							else if(write_status == _VERIFY)
 							{
-#ifdef SERIAL_DEBUG
-								println("Flashing Complete");
+								println("Verifying");
+								write_status = _LOAD;
+								uint16_t temp_add = write_addr + offset - SPM_PAGESIZE;
+								uint8_t temp_counter = SPM_PAGESIZE;
+								uint16_t data_pointer = offset - SPM_PAGESIZE;
+								do
+								{
+#ifndef  TESTING
+									if(pgm_read_byte_near(temp_add) != *(ptr + data_pointer))
+									{
+										println("verify error");
+										write_error--;
+										write_status = _WRITE;
+										break;
+									}
 #endif
-								//Update Flash Write flag and Update the software version
-								eeprom_write(FLASH_WRITE_FLAG,FLASH_WR_COMPLETE_VALUE);
-								eeprom_write(SOFTWARE_VER_HIGH,ver_high);
-								eeprom_write(SOFTWARE_VER_LOW,ver_low);
-								// Start the Application
-								// Instead of having multiple locations for app start,  put Error = 0 to start the app
-								Error_count = 0;
+									temp_add++;
+									data_pointer++;
+								}while (--temp_counter);
+								if(write_error == 0)
+								{
+									Error_count = 0;
+									exit_page = 0;
+								}
 							}
-							page_no++;
 						}
 					}
 				}
 			}
-			else
-			{
-				--Error_count;
-#ifdef SERIAL_DEBUG
-				println("Error has Occured :");
-				printnum(Error_count);
-#endif
-			}
+		}
+		else
+		{
+			println("error count");
+			--Error_count;
 		}
 	}
 }
@@ -699,7 +654,7 @@ void itoa_local(char *str , uint16_t value)
 	}while(value);
 	str[i]=0;
 	j = i - 1;
-	for (i = 0; i<j; i++, j--) 
+	for (i = 0; i<j; i++, j--)
 	{
 		c = str[i];
 		str[i] = str[j];
