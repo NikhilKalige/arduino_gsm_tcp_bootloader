@@ -8,8 +8,10 @@
 #include <inttypes.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
+#include <avr/interrupt.h>
 
-#define SERIAL_DEBUG
+
+//#define SERIAL_DEBUG
 //#define TESTING
 
 // <avr/boot.h> uses sts instructions, but this version uses out instructions
@@ -100,21 +102,21 @@ typedef enum
 //int main(void) __attribute__ ((naked)) __attribute__ ((section (".init9")));
 
 
-#ifdef SERIAL_DEBUG
+//#ifdef SERIAL_DEBUG
 void println(char* msg);
 void printhex(uint16_t num, uint8_t len);
 void printdec(uint16_t num, uint8_t len);
 #define printnum(num) printhex(num, 4)
 #define printnet(num) printhex(num, 2)
-#endif
+//#endif
 
 
 static void print(char * str);
 static void read(char *rec_buf,uint16_t wait_time,uint8_t restart);
 static void delay(uint16_t wait_time);
 static void write(uint8_t value);
-static uint8_t eeprom_read(uint16_t address);
-static void eeprom_write(uint16_t address, uint8_t value);
+//static uint8_t eeprom_read(uint16_t address);
+//static void eeprom_write(uint16_t address, uint8_t value);
 static uint8_t validImage(uint8_t* base);
 void Blink_LED(uint16_t time);
 uint16_t atoi_local(char * str, uint8_t len);
@@ -134,7 +136,7 @@ int main()
 	//  r1 contains zero
 	//
 	// If not, uncomment the following instructions:
-	// cli();
+	cli();
 	asm volatile ("clr __zero_reg__");
 	
 	//Configure PWRKEY and DTR as Output
@@ -251,7 +253,8 @@ int main()
 		{
 			//Start Application based on Flash Write Flag
 			uint8_t flag;
-			flag = eeprom_read(FLASH_WRITE_FLAG);
+			//flag = eeprom_read(FLASH_WRITE_FLAG);
+			flag = eeprom_read_byte(FLASH_WRITE_FLAG);
 			if(flag == FLASH_WR_COMPLETE_VALUE)
 			{
 				//Start Application
@@ -356,8 +359,8 @@ int main()
 							ver_high = *(ptr);
 							ver_low = *(ptr + 1);
 							// Now Cross check the values with current version and then decide to update
-							uint8_t curr_ver_high = eeprom_read(SOFTWARE_VER_HIGH);
-							uint8_t curr_ver_low = eeprom_read(SOFTWARE_VER_LOW);
+							uint8_t curr_ver_high = eeprom_read_byte(SOFTWARE_VER_HIGH);
+							uint8_t curr_ver_low = eeprom_read_byte(SOFTWARE_VER_LOW);
 							if((curr_ver_high >= ver_high) && (curr_ver_low >= ver_low))
 							{
 								//Error_count = 0;
@@ -400,7 +403,7 @@ int main()
 									{
 										println("flag erased");
 										//Erase the flag in eeprom
-										eeprom_write(FLASH_WRITE_FLAG,0xff);
+										eeprom_write_byte(FLASH_WRITE_FLAG,0xff);
 									}
 								}
 								if((write_addr + packet_length) > MAX_ADDR)
@@ -426,17 +429,21 @@ int main()
 							
 							else if(write_status == _LOAD)
 							{
+#ifdef SERIAL_DEBUG
 								println("Load");
+#endif
 								while(offset < packet_length)
 								{
 									uint16_t write_value = (ptr[offset]) | ((ptr[offset+1]) << 8);
 #ifndef  TESTING
-									boot_page_fill((write_addr + offset), write_value);
+									boot_page_fill_safe((write_addr + offset), write_value);
 #endif
+#ifdef SERIAL_DEBUG
 									println("Writing ");
 									printnum(write_value);
 									print(" at offset ");
 									printnum(write_addr + offset);
+#endif
 									offset += 2;
 									if(offset % SPM_PAGESIZE == 0)
 									{
@@ -453,11 +460,11 @@ int main()
 										println("Complete update eeprom");
 										// Complete Binary has been written.. Update EEPROM
 										//Update Flash Write flag and Update the software version
-										eeprom_write(FLASH_WRITE_FLAG,FLASH_WR_COMPLETE_VALUE);
-										eeprom_write(SOFTWARE_VER_HIGH,ver_high);
-										eeprom_write(SOFTWARE_VER_LOW,ver_low);
+										eeprom_write_byte(FLASH_WRITE_FLAG,FLASH_WR_COMPLETE_VALUE);
+										eeprom_write_byte(SOFTWARE_VER_HIGH,ver_high);
+										eeprom_write_byte(SOFTWARE_VER_LOW,ver_low);
 										// Start the Application
-										Error_count = 0;
+										 Error_count = 0;
 									}
 									exit_page = 0;
 								}
@@ -467,19 +474,21 @@ int main()
 							
 							else if(write_status == _WRITE)
 							{
+#ifdef SERIAL_DEBUG
 								println("writing");
+#endif
 								printnum(write_addr + offset - SPM_PAGESIZE);
 #ifndef  TESTING
 								//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
-								boot_page_erase(write_addr + offset - SPM_PAGESIZE);
+								boot_page_erase_safe(write_addr + offset - SPM_PAGESIZE);
 								boot_spm_busy_wait();
 								//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
-								boot_page_write(write_addr + offset - SPM_PAGESIZE);
+								boot_page_write_safe(write_addr + offset - SPM_PAGESIZE);
 								boot_spm_busy_wait();
 								
 								#if defined(RWWSRE)
 								// Reenable read access to flash
-								boot_rww_enable();
+								boot_rww_enable_safe();
 								#endif
 #endif
 								write_status = _VERIFY;
@@ -574,7 +583,7 @@ static void write(uint8_t value)
 	while (!(UCSR0A & _BV(UDRE0)));
 	UDR0 = value;
 }
-
+/*
 static void eeprom_write(uint16_t address, uint8_t value)
 {
 	while(EECR & (1 << EEPE));
@@ -591,7 +600,7 @@ static uint8_t eeprom_read(uint16_t address)
 	EECR |= (1 << EERE);
 	return EEDR;
 }
-
+*/
 
 void appStart()
 {
@@ -662,7 +671,7 @@ void itoa_local(char *str , uint16_t value)
 	}
 }
 
-#ifdef SERIAL_DEBUG
+
 void println(char* msg)
 {
 	print("\r\n");
@@ -685,5 +694,5 @@ void printhex(uint16_t num, uint8_t len)
 		len--;
 	}
 }
-#endif
+
 
