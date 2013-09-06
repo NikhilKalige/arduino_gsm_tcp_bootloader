@@ -258,9 +258,10 @@ int main()
 			if(flag == FLASH_WR_COMPLETE_VALUE)
 			{
 				//Start Application
+#ifdef SERIAL_DEBUG
 				println("start");
+#endif
 #ifndef  TESTING
-				println("start");
 				appStart();
 #endif
 				while(1)
@@ -273,7 +274,9 @@ int main()
 				//LED Flash
 				while(1)
 				{
+#ifdef SERIAL_DEBUG
 					println("error");
+#endif
 					Blink_LED(_2s);
 				}
 			}
@@ -287,6 +290,7 @@ int main()
 				if(strstr(rec_buf,"CONNECT"))
 				{
 					send_status = _SEND;
+					 Error_count = MAX_ERROR_COUNT;
 					break;
 				}
 				else
@@ -386,29 +390,40 @@ int main()
 						{
 							if(write_status == _ADDR_VALIDATE)
 							{
+#ifdef SERIAL_DEBUG
 								println("add_validate");
 								println("Writing data from address ");
+#endif
 								printnum(write_addr);
 								write_addr = (page_no - 1) << 9;
 								if(write_addr == 0)
 								{
+#ifdef SERIAL_DEBUG
 									println("validate image");
+#endif
 									if(!validImage(ptr))
 									{
+#ifdef SERIAL_DEBUG
 										println("invalid");
+#endif
 										exit_page = 0;
 										Error_count = 0;
 									}
 									else
 									{
+#ifdef SERIAL_DEBUG
 										println("flag erased");
+#endif
 										//Erase the flag in eeprom
 										eeprom_write_byte(FLASH_WRITE_FLAG,0xff);
+										eeprom_busy_wait();   
 									}
 								}
 								if((write_addr + packet_length) > MAX_ADDR)
 								{
+#ifdef SERIAL_DEBUG
 									println("add exceeded");
+#endif
 									exit_page = 0;
 									Error_count = 0;
 								}
@@ -436,7 +451,11 @@ int main()
 								{
 									uint16_t write_value = (ptr[offset]) | ((ptr[offset+1]) << 8);
 #ifndef  TESTING
-									boot_page_fill_safe((write_addr + offset), write_value);
+									//boot_page_fill_safe((write_addr + offset), write_value);
+									 //boot_spm_busy_wait();   
+									// eeprom_busy_wait();        
+									 //boot_page_fill(address, data);
+									boot_page_fill((write_addr + offset), write_value);
 #endif
 #ifdef SERIAL_DEBUG
 									println("Writing ");
@@ -457,7 +476,9 @@ int main()
 									page_no++;
 									if(page_no > no_pages)
 									{
+#ifdef SERIAL_DEBUG
 										println("Complete update eeprom");
+#endif
 										// Complete Binary has been written.. Update EEPROM
 										//Update Flash Write flag and Update the software version
 										eeprom_write_byte(FLASH_WRITE_FLAG,FLASH_WR_COMPLETE_VALUE);
@@ -480,15 +501,18 @@ int main()
 								printnum(write_addr + offset - SPM_PAGESIZE);
 #ifndef  TESTING
 								//__boot_page_erase_short(write_addr + offset - SPM_PAGESIZE);
-								boot_page_erase_safe(write_addr + offset - SPM_PAGESIZE);
+								//boot_page_erase_safe(write_addr + offset - SPM_PAGESIZE);
+								boot_page_erase(write_addr + offset - SPM_PAGESIZE);
 								boot_spm_busy_wait();
 								//__boot_page_write_short(write_addr + offset - SPM_PAGESIZE);
-								boot_page_write_safe(write_addr + offset - SPM_PAGESIZE);
+								//boot_page_write_safe(write_addr + offset - SPM_PAGESIZE);
+								boot_page_write(write_addr + offset - SPM_PAGESIZE);
 								boot_spm_busy_wait();
 								
 								#if defined(RWWSRE)
 								// Reenable read access to flash
-								boot_rww_enable_safe();
+								//boot_rww_enable_safe();
+								boot_rww_enable();
 								#endif
 #endif
 								write_status = _VERIFY;
@@ -496,7 +520,9 @@ int main()
 							
 							else if(write_status == _VERIFY)
 							{
+#ifdef SERIAL_DEBUG
 								println("Verifying");
+#endif
 								write_status = _LOAD;
 								uint16_t temp_add = write_addr + offset - SPM_PAGESIZE;
 								uint8_t temp_counter = SPM_PAGESIZE;
@@ -506,7 +532,9 @@ int main()
 #ifndef  TESTING
 									if(pgm_read_byte_near(temp_add) != *(ptr + data_pointer))
 									{
+#ifdef SERIAL_DEBUG
 										println("verify error");
+#endif
 										write_error--;
 										write_status = _WRITE;
 										break;
@@ -528,7 +556,9 @@ int main()
 		}
 		else
 		{
+#ifdef SERIAL_DEBUG
 			println("error count");
+#endif
 			--Error_count;
 		}
 	}
